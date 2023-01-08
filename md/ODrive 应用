@@ -1,0 +1,64 @@
+> 本文由 [简悦 SimpRead](http://ksria.com/simpread/) 转码， 原文地址 [blog.csdn.net](https://blog.csdn.net/abf1234444/article/details/103365191)
+
+控制器
+===
+
+电机控制器为[级联](https://so.csdn.net/so/search?q=%E7%BA%A7%E8%81%94&spm=1001.2101.3001.7020)式，采用位置，速度和电流控制回路，如下图所示。 当控制模式设置为位置控制时，整个循环都会运行。 在速度控制模式下运行时，位置控制部分将不被使用，并将速度命令直接输入到第二级输入中。 同理，在电流控制模式下，仅使用电流控制回路。  
+![](https://img-blog.csdnimg.cn/20191203181641119.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L2FiZjEyMzQ0NDQ=,size_16,color_FFFFFF,t_70)  
+每个控制回路都是基于 [PID 控制器](https://en.wikipedia.org/wiki/PID_controller)。PID 控制器是一种被广泛应用的控制方式，可以适用于控制大部分系统。 这种灵活性使得 ODrive 可以用于控制各种机械系统。
+
+### 位置环:
+
+位置环控制器是一个具有单个比例增益的 P 环路。
+
+```
+pos_error = pos_setpoint - pos_feedback
+vel_cmd = pos_error * pos_gain + vel_feedforward
+```
+
+### 速度环:
+
+速度环控制器是一个 PI 环路。
+
+```
+vel_error = vel_cmd - vel_feedback
+current_integral += vel_error * vel_integrator_gain
+current_cmd = vel_error * vel_gain + current_integral + current_feedforward
+```
+
+### 电流环:
+
+电流环控制器是一个 PI 环路。
+
+```
+current_error = current_cmd - current_fb
+voltage_integral += current_error * current_integrator_gain
+voltage_cmd = current_error * current_gain + voltage_integral (+ voltage_feedforward when we have motor model)
+```
+
+可以通过阅读 ODrive [源码](https://so.csdn.net/so/search?q=%E6%BA%90%E7%A0%81&spm=1001.2101.3001.7020)中的 "controller.cpp" 文件来获取更多信息。
+
+参数整定
+----
+
+调整电机控制器是释放 ODrive 潜力的必不可少的步骤。通过调整，控制器可以快速响应系统中的干扰或变化（例如施加的外力或设定值的变化）而不会变得不稳定。 正确设置三个调整参数（称为增益）可确保 ODrive 能够以最有效的方式控制电动机。 这三个参数是：
+
+*   `<axis>.controller.config.pos_gain = 20.0` [(counts/s) / counts]
+*   `<axis>.controller.config.vel_gain = 5.0 / 10000.0` [A/(counts/s)]
+*   `<axis>.controller.config.vel_integrator_gain = 10.0 / 10000.0` [A/((counts/s) * s)]
+
+我们即将推出带有自动调整功能的版本。 但在此之前还是需要手动调节，以下是一个粗略的调整过程：
+
+*   设置 `vel_integrator_gain`为 0
+*   逐渐减小另外两个值使系统达到稳定状态
+*   逐渐增加`vel_gain` ，每次增加 30% 左右，直到电机出现轻微的震荡
+*   设置 `vel_gain` 为出现轻微震动时值的 50%
+*   逐渐增加 `pos_gain` ，每次增加 30% 左右，直到您看到有些过冲
+*   逐渐减小 `pos_gain` ，直到过冲消失
+*   可以将积分器`vel_integrator_gain`设置为`0.5 * 带宽 * vel_gain`，其中 “带宽” 是您的系统的控制带宽。 例如，您发送一条运动控制指令，假设您的调整使它以 100ms 的建立时间（从设定值更改到系统到达新设定值的时间）跟踪命令； 这意味着带宽为`1/(100ms)=1/(0.1s)=10hz`。 在这种情况下，您应该设置`vel_integrator_gain = 0.5 * 10 * vel_gain`。
+
+[实时绘图](https://blog.csdn.net/abf1234444/article/details/103365140)功能对于调整控制器参数帮助很大，例如，可以通过在`odrivetool`中运行以下命令来以曲线的形式实时显示设置位置和实际位置:
+
+`start_liveplotter(lambda:[odrv0.axis0.encoder.pos_estimate, odrv0.axis0.controller.pos_setpoint])`
+
+_**如果您有任何问题或疑问，欢迎您加入 [ODrive 社区](https://discourse.odriverobotics.com/)或 QQ 群 851421965 进行交流。**_
